@@ -96,19 +96,34 @@ void bmt_printf(const char *fmt, ...)
     va_list args;
     va_start(args, fmt);
 
-    for (; *fmt; fmt++) {
+    while (*fmt) {
         // '%' 以外の通常の文字は直接送信
         if (*fmt != '%') {
-            uart_putchar(*fmt);
+            uart_putchar(*fmt++);
             continue;
+        }
+
+        fmt++; // '%' をスキップ
+
+        // '%' 単体で文字列が終わっていた場合は終了
+        if (*fmt == '\0') {
+            uart_putchar('%');
+            break;
         }
 
         int w = 0;
         // '0' から始まる幅指定（例: %08x の '0'）の解析
-        if (*++fmt == '0') {
-            while (*++fmt >= '0' && *fmt <= '9') {
+        if (*fmt == '0') {
+            fmt++; // '0' をスキップ
+            while (*fmt >= '0' && *fmt <= '9') {
                 w = w * 10 + (*fmt - '0');
+                fmt++;
             }
+        }
+
+        // 幅指定解析後に文字列が終わっていた場合は終了
+        if (*fmt == '\0') {
+            break;
         }
 
         // フォーマット指定子の解析と処理
@@ -132,8 +147,8 @@ void bmt_printf(const char *fmt, ...)
             case 'p':
                 uart_putchar('0');
                 uart_putchar('x');
-                // ポインタは固定で 8桁 (32bit) の 16進数 0 埋め出力
-                print_num((unsigned long)va_arg(args, void *), 16, 8, 0, 0);
+                //  16進数 0 埋め出力、C99標準の uintptr_t を使用しキャスト処理
+                print_num((unsigned long)(uintptr_t)va_arg(args, void *), 16, (int)(sizeof(void *) * 2), 0, 0);
                 break;
             case 's': {
                 const char *s = va_arg(args, const char *);
@@ -149,11 +164,12 @@ void bmt_printf(const char *fmt, ...)
             case '%': // "%%" で '%' 自体を出力
                 uart_putchar('%');
                 break;
-            default:
-                // 未対応の指定子
+            default: // 未対応の指定子
                 uart_putchar(*fmt);
                 break;
         }
+
+        fmt++; // 次の文字へ進める
     }
 
     va_end(args);
