@@ -243,7 +243,7 @@ void bmt_printf(const char *fmt, ...)
  * @param[in]  ...  可変長引数
  * @return int      出力した(しようとした)文字数 (終端 '\0' は含まない)
  */
-int bmt_snprintf(char *buf, size_t size, const char *fmt, ...)
+int bmt_snprintf(char *buf, int size, const char *fmt, ...)
 {
     out_ctx_t ctx = { .buf = buf, .size = size, .count = 0 };
     va_list args;
