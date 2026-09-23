@@ -2,7 +2,7 @@
  * @file bmt_printf.c
  * @brief 超軽量 printf (bmt_printf) および snprintf (bmt_snprintf) の実装ファイル
  * 
- * @copyright Copyright (c) 2026
+ * @copyright Copyright (c) 2026 Embedead-Inside
  * @license SPDX-License-Identifier: MIT-0
  */
 
