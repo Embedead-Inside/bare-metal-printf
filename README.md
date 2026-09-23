@@ -34,7 +34,7 @@
    void bmt_printf(const char *fmt, ...);
    
    /* バッファへの安全なフォーマット文字列作成 */
-   int bmt_snprintf(char *buf, size_t size, const char *fmt, ...);
+   int bmt_snprintf(char *buf, int size, const char *fmt, ...);
    ```
 
 ## 使い方
