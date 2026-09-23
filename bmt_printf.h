@@ -1,6 +1,6 @@
 /**
  * @file bmt_printf.h
- * @brief 組込みシステム向け超軽量 printf ライブラリ (C99準拠)
+ * @brief 組込みシステム向け超軽量 printf / snprintf ライブラリ (標準ヘッダー非依存)
  * @details コードサイズおよびメモリフットプリントを極限まで小さくした
  *          ベアメタル/SoC開発向けのフォーマット出力ライブラリです。
  * 
@@ -44,6 +44,17 @@ void uart_putchar(char c);
  * @param[in] ... 可変長引数
  */
 void bmt_printf(const char *fmt, ...);
+
+/**
+ * @brief バッファ安全型フォーマット文字列作成関数
+ * 
+ * @param[out] buf  出力先バッファ
+ * @param[in]  size バッファの最大サイズ (終端 '\0' を含む)
+ * @param[in]  fmt  フォーマット文字列
+ * @param[in]  ...  可変長引数
+ * @return int     出力した(しようとした)文字数 (終端 '\0' は含まない)
+ */
+int bmt_snprintf(char *buf, int size, const char *fmt, ...);
 
 #ifdef __cplusplus
 }
