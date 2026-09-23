@@ -1,6 +1,6 @@
 /**
  * @file bmt_printf.c
- * @brief 超軽量 printf (bmt_printf) の実装ファイル
+ * @brief 超軽量 printf (bmt_printf) および snprintf (bmt_snprintf) の実装ファイル
  * 
  * @copyright Copyright (c) 2026
  * @license SPDX-License-Identifier: MIT-0
@@ -29,17 +29,48 @@ void uart_putchar(char c)
 }
 
 /**
+ * @brief 出力先状態管理コンテキスト構造体
+ */
+typedef struct {
+    char *buf;      /**< 出力先バッファ (NULLの場合はUART直接出力) */
+    size_t size;    /**< バッファ最大サイズ */
+    size_t count;   /**< 出力した（または出力しようとした）文字数 */
+} out_ctx_t;
+
+/**
+ * @brief 1文字出力抽象化関数 (インライン展開対象)
+ * 
+ * @param[in,out] ctx  出力先および状態を保持するコンテキスト構造体へのポインタ
+ * @param[in]     c    送信する1文字 (ASCIIコード)
+ */
+static inline void put_char_ctx(out_ctx_t *ctx, char c)
+{
+    if (ctx->buf) {
+        // 現在のカウントが (最大サイズ - 1) より小さい場合のみ、安全にバッファへ書き込む
+        if (ctx->size > 0 && ctx->count < (ctx->size - 1)) {
+            ctx->buf[ctx->count] = c;
+        }
+    } else {
+        // printf モード: 直接UARTへ出力 (スタックバッファ不要)
+        uart_putchar(c);
+    }
+    ctx->count++; // カウントはバッファの有無に関わらず常に進める（C99規格準拠）
+}
+
+
+/**
  * @brief 数値変換およびパディング制御コア関数
  * @details 数値を指定された基数で文字列へ変換し、符号の処理、幅指定のゼロ埋め、
  *          および逆順出力までを一括して行います。
  * 
- * @param[in] n         変換対象の数値
- * @param[in] base      基数 (10: 10進数, 16: 16進数, 2: 2進数)
- * @param[in] width     表示領域の最小幅 (ゼロ埋め適用幅)
- * @param[in] is_signed 符号付きフラグ (1: 符号付き, 0: 符号なし)
- * @param[in] upper     大文字化フラグ (1: A-F を大文字で出力, 0: 小文字)
+ * @param[in,out] ctx       出力先および状態を保持するコンテキスト構造体へのポインタ
+ * @param[in]     n         変換対象の数値
+ * @param[in]     base      基数 (10: 10進数, 16: 16進数, 2: 2進数)
+ * @param[in]     width     表示領域の最小幅 (ゼロ埋め適用幅)
+ * @param[in]     is_signed 符号付きフラグ (1: 符号付き, 0: 符号なし)
+ * @param[in]     upper     大文字化フラグ (1: A-F を大文字で出力, 0: 小文字)
  */
-static void print_num(unsigned long n, int base, int width, int is_signed, int upper)
+static void print_num(out_ctx_t *ctx, unsigned long n, int base, int width, int is_signed, int upper)
 {
     char buf[32];
     int i = 0;
@@ -58,19 +89,121 @@ static void print_num(unsigned long n, int base, int width, int is_signed, int u
 
     // 負数符号の先行出力
     if (neg) {
-        uart_putchar('-');
+        put_char_ctx(ctx, '-');
     }
 
     // 0埋めパディングの出力
     while (width > i + neg) {
-        uart_putchar('0');
+        put_char_ctx(ctx, '0');
         width--;
     }
 
     // 逆順（上位桁から）に文字を出力
     while (i > 0) {
-        uart_putchar(buf[--i]);
+        put_char_ctx(ctx, buf[--i]);
     }
+}
+
+/**
+ * @brief 内部コアフォーマット解析・出力エンジン
+ * @details フォーマット文字列を走査・解析し、指定子に応じた変換処理を行って
+ *          1文字出力抽象化関数 (put_char_ctx) 経由で文字を出力します。
+ *          printf（UART直接出力）と snprintf（バッファ出力）の両方の
+ *          コアロジックとして機能します。
+ * 
+ * @param[in,out] ctx  出力先および状態を保持するコンテキスト構造体へのポインタ
+ * @param[in]     fmt  フォーマット文字列
+ * @param[in]     args 可変長引数リスト (va_list)
+ * @return int         出力した（または出力しようとした）合計文字数（終端 '\0' は除く）
+ */
+static int format_process(out_ctx_t *ctx, const char *fmt, va_list args)
+{
+    while (*fmt) {
+        // '%' 以外の通常の文字は直接送信
+        if (*fmt != '%') {
+            put_char_ctx(ctx, *fmt++);
+            continue;
+        }
+
+        fmt++; // '%' をスキップ
+
+        // '%' 単体で文字列が終わっていた場合は終了
+        if (*fmt == '\0') {
+            put_char_ctx(ctx, '%');
+            break;
+        }
+
+        int w = 0;
+        // '0' から始まる幅指定（例: %08x の '0'）の解析
+        if (*fmt == '0') {
+            fmt++; // '0' をスキップ
+            while (*fmt >= '0' && *fmt <= '9') {
+                w = w * 10 + (*fmt - '0');
+                fmt++;
+            }
+        }
+
+        // 幅指定解析後に文字列が終わっていた場合は終了
+        if (*fmt == '\0') {
+            break;
+        }
+
+        // フォーマット指定子の解析と処理
+        switch (*fmt) {
+            case 'd':
+            case 'i': // 符号付き10進数
+                print_num(ctx, (unsigned long)va_arg(args, int), 10, w, 1, 0);
+                break;
+            case 'u':
+                print_num(ctx, (unsigned long)va_arg(args, unsigned int), 10, w, 0, 0);
+                break;
+            case 'x':
+                print_num(ctx, (unsigned long)va_arg(args, unsigned int), 16, w, 0, 0);
+                break;
+            case 'X':
+                print_num(ctx, (unsigned long)va_arg(args, unsigned int), 16, w, 0, 1);
+                break;
+            case 'b':
+                print_num(ctx, (unsigned long)va_arg(args, unsigned int), 2, w, 0, 0);
+                break;
+            case 'p':
+                put_char_ctx(ctx, '0');
+                put_char_ctx(ctx, 'x');
+                // 16進数 0 埋め出力、C99標準の uintptr_t を使用しキャスト処理
+                print_num(ctx, (unsigned long)(uintptr_t)va_arg(args, void *), 16, (int)(sizeof(void *) * 2), 0, 0);
+                break;
+            case 's': {
+                const char *s = va_arg(args, const char *);
+                if (!s) s = "(null)";
+                while (*s) {
+                    put_char_ctx(ctx, *s++);
+                }
+                break;
+            }
+            case 'c':
+                put_char_ctx(ctx, (char)va_arg(args, int));
+                break;
+            case '%': // "%%" で '%' 自体を出力
+                put_char_ctx(ctx, '%');
+                break;
+            default: // 未対応の指定子
+                put_char_ctx(ctx, *fmt);
+                break;
+        }
+
+        fmt++; // 次の文字へ進める
+    }
+
+    // snprintf の場合のみ終端 '\0' を付与
+    if (ctx->buf && ctx->size > 0) {
+        if (ctx->count < ctx->size) {
+            ctx->buf[ctx->count] = '\0';
+        } else {
+            ctx->buf[ctx->size - 1] = '\0';
+        }
+    }
+
+    return (int)ctx->count;
 }
 
 /**
@@ -94,84 +227,28 @@ static void print_num(unsigned long n, int base, int width, int is_signed, int u
  */
 void bmt_printf(const char *fmt, ...)
 {
+    out_ctx_t ctx = { .buf = NULL, .size = 0, .count = 0 };
     va_list args;
     va_start(args, fmt);
-
-    while (*fmt) {
-        // '%' 以外の通常の文字は直接送信
-        if (*fmt != '%') {
-            uart_putchar(*fmt++);
-            continue;
-        }
-
-        fmt++; // '%' をスキップ
-
-        // '%' 単体で文字列が終わっていた場合は終了
-        if (*fmt == '\0') {
-            uart_putchar('%');
-            break;
-        }
-
-        int w = 0;
-        // '0' から始まる幅指定（例: %08x の '0'）の解析
-        if (*fmt == '0') {
-            fmt++; // '0' をスキップ
-            while (*fmt >= '0' && *fmt <= '9') {
-                w = w * 10 + (*fmt - '0');
-                fmt++;
-            }
-        }
-
-        // 幅指定解析後に文字列が終わっていた場合は終了
-        if (*fmt == '\0') {
-            break;
-        }
-
-        // フォーマット指定子の解析と処理
-        switch (*fmt) {
-            case 'd':
-            case 'i': // 符号付き10進数
-                print_num((unsigned long)va_arg(args, int), 10, w, 1, 0);
-                break;
-            case 'u':
-                print_num((unsigned long)va_arg(args, unsigned int), 10, w, 0, 0);
-                break;
-            case 'x':
-                print_num((unsigned long)va_arg(args, unsigned int), 16, w, 0, 0);
-                break;
-            case 'X':
-                print_num((unsigned long)va_arg(args, unsigned int), 16, w, 0, 1);
-                break;
-            case 'b':
-                print_num((unsigned long)va_arg(args, unsigned int), 2, w, 0, 0);
-                break;
-            case 'p':
-                uart_putchar('0');
-                uart_putchar('x');
-                //  16進数 0 埋め出力、C99標準の uintptr_t を使用しキャスト処理
-                print_num((unsigned long)(uintptr_t)va_arg(args, void *), 16, (int)(sizeof(void *) * 2), 0, 0);
-                break;
-            case 's': {
-                const char *s = va_arg(args, const char *);
-                if (!s) s = "(null)";
-                while (*s) {
-                    uart_putchar(*s++);
-                }
-                break;
-            }
-            case 'c':
-                uart_putchar((char)va_arg(args, int));
-                break;
-            case '%': // "%%" で '%' 自体を出力
-                uart_putchar('%');
-                break;
-            default: // 未対応の指定子
-                uart_putchar(*fmt);
-                break;
-        }
-
-        fmt++; // 次の文字へ進める
-    }
-
+    (void)format_process(&ctx, fmt, args);
     va_end(args);
+}
+
+/**
+ * @brief バッファ安全型フォーマット文字列作成関数
+ * 
+ * @param[out] buf  出力先バッファ
+ * @param[in]  size バッファの最大サイズ (終端 '\0' を含む)
+ * @param[in]  fmt  フォーマット文字列
+ * @param[in]  ...  可変長引数
+ * @return int      出力した(しようとした)文字数 (終端 '\0' は含まない)
+ */
+int bmt_snprintf(char *buf, size_t size, const char *fmt, ...)
+{
+    out_ctx_t ctx = { .buf = buf, .size = size, .count = 0 };
+    va_list args;
+    va_start(args, fmt);
+    int ret = format_process(&ctx, fmt, args);
+    va_end(args);
+    return ret;
 }
