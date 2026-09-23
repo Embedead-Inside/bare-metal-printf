@@ -4,7 +4,7 @@
  * @details コードサイズおよびメモリフットプリントを極限まで小さくした
  *          ベアメタル/SoC開発向けのフォーマット出力ライブラリです。
  * 
- * @copyright Copyright (c) 2026
+ * @copyright Copyright (c) 2026 Embedead-Inside
  * @license SPDX-License-Identifier: MIT-0
  */
 
