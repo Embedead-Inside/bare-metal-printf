@@ -1,5 +1,9 @@
 # bare-metal-printf
 
+[![License: MIT-0](https://img.shields.io/badge/License-MIT--0-blue.svg)](https://spdx.org/licenses/MIT-0.html)
+[![Language: C99](https://img.shields.io/badge/Language-C99-green.svg)](#)
+
+## Bare-Metal printf
 組込みシステム（ベアメタル/SoC）向けの超軽量 `printf` ライブラリ。
 
 ## 特徴
