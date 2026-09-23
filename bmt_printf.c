@@ -8,6 +8,7 @@
 
 #include "bmt_printf.h"
 #include <stdarg.h>
+#include <stdint.h>
 
 /**
  * @brief 1文字出力関数（プラットフォーム依存の下位レイヤー関数）
